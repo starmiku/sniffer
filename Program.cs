@@ -1,6 +1,5 @@
 ﻿using System;
 using SharpPcap;
-using SharpPcap.AirPcap;
 using SharpPcap.LibPcap;
 using SharpPcap.WinPcap;
 using PacketDotNet;
@@ -12,10 +11,7 @@ namespace 毕业设计
         System.Collections.ArrayList srcIP = new System.Collections.ArrayList(); //ip source
         System.Collections.ArrayList destIP = new System.Collections.ArrayList();//ip destination
         public static void Main(string[] args)
-        {
-
-            
-
+        {    
             //SharpPcap版本
             string ver = SharpPcap.Version.VersionString;
             Console.WriteLine("SharpPcap {0}", ver);
@@ -131,7 +127,7 @@ namespace 毕业设计
                     device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
 
                     //统计模式
-                    device.Mode = CaptureMode.Statistics;
+                    device.Mode = SharpPcap.WinPcap.CaptureMode.Statistics;
 
                     break;
 
