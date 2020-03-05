@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="PacketDotNet">
+      <HintPath>bin\Debug\netcoreapp3.1\PacketDotNet.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpPcap">
+      <HintPath>bin\Debug\netcoreapp3.1\SharpPcap.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
