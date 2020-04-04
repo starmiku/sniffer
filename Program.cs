@@ -2,16 +2,15 @@
 using SharpPcap;
 using SharpPcap.LibPcap;
 using SharpPcap.WinPcap;
+using SharpPcap.AirPcap;
 using PacketDotNet;
 
 namespace 毕业设计
 {
     public class Filter
     {
-        System.Collections.ArrayList srcIP = new System.Collections.ArrayList(); //ip source
-        System.Collections.ArrayList destIP = new System.Collections.ArrayList();//ip destination
         public static void Main(string[] args)
-        {    
+        {
             //SharpPcap版本
             string ver = SharpPcap.Version.VersionString;
             Console.WriteLine("SharpPcap {0}", ver);
@@ -21,7 +20,7 @@ namespace 毕业设计
             /// </summary>
 
 
-            Console.WriteLine("\n请选择你需要的功能：1.ping检测 2.监听流量 3.分析保存的数据包 4.流量统计 5.监听指定端口: ");
+            Console.WriteLine("\n请选择你需要的功能：1.ping检测 2.端口扫描检测 3.分析保存的数据包 4.流量统计 5.监听指定端口: ");
 
             int func = 0;
 
@@ -49,7 +48,7 @@ namespace 毕业设计
             Console.WriteLine("\n本机设备：\n");
 
             int i = 0;
-            int devs=0;
+            int devs = 0;
 
             //输出设备列表
             foreach (var dev in devices)
@@ -63,7 +62,7 @@ namespace 毕业设计
 
             i = int.Parse(Console.ReadLine());
 
-            if(i>devs||i<0)
+            if (i > devs || i < 0)
             {
                 Console.WriteLine("\n请输入正确的序号：");
                 i = int.Parse(Console.ReadLine());
@@ -73,18 +72,19 @@ namespace 毕业设计
             var device = devices[i] as WinPcapDevice;
 
             int readTimeoutMilliseconds = 1000;
+            string tcpipfilter = "tcp and ip";
 
             ///<summary>
             ///执行功能
             /// </summary>
 
             switch (func)
-            {             
-                
+            {
+
                 case 1:
                     //PING检测
                     device.OnPacketArrival +=
-                            new PacketArrivalEventHandler(PingTest);
+                            new PacketArrivalEventHandler(PingDetect);
 
                     //混杂模式
                     device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
@@ -95,27 +95,30 @@ namespace 毕业设计
 
                     break;
 
-                
-                
                 case 2:
-                    //流量监控
+                    //端口扫描检测
                     device.OnPacketArrival +=
-                            new PacketArrivalEventHandler(PacketSourceAndDestination);
+                            new PacketArrivalEventHandler(ScanDetect);
 
                     //混杂模式
                     device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
 
                     //过滤tcp和ip包
-                    string tcpipfilter = "tcp and ip";
                     device.Filter = tcpipfilter;
 
                     break;
 
                 case 3:
-                    
-
+                    //测试模块
                     device.OnPacketArrival +=
-                            new PacketArrivalEventHandler(PacketDump);
+                            new PacketArrivalEventHandler(Test);
+
+                    //混杂模式
+                    device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
+
+                    //过滤tcp和ip包
+                    device.Filter = tcpipfilter;
+
                     break;
 
                 case 4:
@@ -164,18 +167,28 @@ namespace 毕业设计
         ///回调函数
         /// </summary>
 
-        //流量监控
-        private static void PacketSourceAndDestination(object sender, CaptureEventArgs e)
+        //测试模块
+        /*
+        private static void Test(object sender, CaptureEventArgs e)
         {
             var time = e.Packet.Timeval.Date;
             var len = e.Packet.Data.Length;
 
-            var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+            var packet = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+            var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
+
+            byte a = tcpPacket.Header[4 + 4 + 4 + 1];
+            int flag = int.Parse(System.Convert.ToString(a, 2));
+            int result= ScanType(flag);
+
+            if(1==result)
+                Console.WriteLine("Found SYNSCAN");
 
             Console.WriteLine(packet.ToString());
+            Console.WriteLine(packet.PrintHex());
+
+
             
-            /*
-            var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
             if (tcpPacket != null)
             {
                 var ipPacket = (PacketDotNet.IpPacket)tcpPacket.ParentPacket;
@@ -189,15 +202,16 @@ namespace 毕业设计
                     srcIp, srcPort, dstIp, dstPort);
                 Console.WriteLine(ipPacket.ToString());
             }
-            */
+            
         }
+        */
 
-        //PING检测
-        private static void PingTest(object sender, CaptureEventArgs e)
+
+        ///<summary>
+        ///ping检测
+        /// </summary>
+        private static void PingDetect(object sender, CaptureEventArgs e)
         {
-            var time = e.Packet.Timeval.Date;
-            var len = e.Packet.Data.Length;
-
             var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
             var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
 
@@ -207,26 +221,77 @@ namespace 毕业设计
             {
                 System.Net.IPAddress srcIp = ipPacket.SourceAddress;
                 System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
-                Console.WriteLine("检测到来自{0}向{1}发起的PING请求",srcIp,dstIp);
+                Console.WriteLine("检测到来自{0}向{1}发起的PING请求", srcIp, dstIp);
             }
         }
 
-        private static void PacketDump(object sender, CaptureEventArgs e)
+        ///<summary>
+        ///端口扫描检测
+        /// </summary>
+        private static void ScanDetect(object sender, CaptureEventArgs e)
         {
+            var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+            var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
             
+            //端口4位+序号4位+确认号4位+数据偏移1位
+            byte a = tcpPacket.Header[4 + 4 + 4 + 1];
+
+            //将标志位的数据转换为二进制
+            int flag = int.Parse(System.Convert.ToString(a, 2));
+           
+            int result = ScanType(flag);
+            if (1 == result)
+                Console.WriteLine("Found SYN scan");
+            else if (2 == result)
+                Console.WriteLine("Found FIN scan");
+            else if (3 == result)
+                Console.WriteLine("Found NULL scan");
         }
 
-        //流量统计
-        static ulong oldSec = 0;
-        static ulong oldUsec = 0;
+        private static int ScanType(int flag)
+        {
+            int ACK, PSH, RST, SYN, FIN;
+
+            if (flag >= 100000)
+                flag -= 100000;
+
+            ACK = flag % 10000;
+            flag -= ACK * 10000;
+
+            PSH = flag % 1000;
+            flag -= PSH * 1000;
+
+            RST = flag % 100;
+            flag -= RST * 100;
+
+            SYN = flag % 10;
+            flag -= SYN * 10;
+
+            FIN = flag;
+
+            if (0 == ACK && 1 == ACK)
+                return 1;//SYN scan
+            else if (2 == FIN)
+                return 2;//FIN scan
+            else if (0 == ACK && 0 == PSH && 0 == RST && 0 == SYN && 0 == FIN)
+                return 3;//NULL scan
+
+            return 0;
+        }
+
+        ///<summary>
+        ///流量统计
+        /// </summary>
         private static void Statistics(object sender, SharpPcap.WinPcap.StatisticsModeEventArgs e)
         {
+            ulong oldSec = 0;
+            ulong oldUsec = 0;
             // Calculate the delay in microseconds from the last sample.
             // This value is obtained from the timestamp that's associated with the sample.
             ulong delay = (e.Statistics.Timeval.Seconds - oldSec) * 1000000 - oldUsec + e.Statistics.Timeval.MicroSeconds;
 
             // Get the number of Bits per second
-            ulong bps = ((ulong)e.Statistics.RecievedBytes * 8 * 1000000 ) / delay;
+            ulong bps = ((ulong)e.Statistics.RecievedBytes * 8 * 1000000) / delay;
 
             // Get the number of Packets per second
             ulong pps = ((ulong)e.Statistics.RecievedPackets * 1000000) / delay;
@@ -234,7 +299,7 @@ namespace 毕业设计
             // Convert the timestamp to readable format
             var ts = e.Statistics.Timeval.Date.ToLongTimeString();
 
-            String netflow = Convert(bps);
+            String netflow = FlowConvert(bps);
 
             // Print Statistics
             Console.WriteLine("{0}  接收：{1}    数据包：{2}", ts, netflow, pps);
@@ -244,16 +309,15 @@ namespace 毕业设计
             oldUsec = e.Statistics.Timeval.MicroSeconds;
         }
 
-        //流量转换
-        private static string Convert(ulong flow)
+        private static string FlowConvert(ulong flow)
         {
             string netflow;
 
-            if(flow<1000)
+            if (flow < 1000)
             {
                 netflow = String.Format("{0}b/s", flow);
             }
-            else if(flow < 1000000)
+            else if (flow < 1000000)
             {
                 flow /= 1000;
                 netflow = String.Format("{0}Kb/s", flow);
