@@ -4,32 +4,67 @@ using SharpPcap.LibPcap;
 using SharpPcap.WinPcap;
 using SharpPcap.AirPcap;
 using PacketDotNet;
+using System.Threading;
 
 namespace 毕业设计
 {
+    //数据包类
+    public class Capture
+    {
+        public Capture(object sender, CaptureEventArgs e)
+        {
+            this.sender = sender;
+            this.capturEventArgs = e;
+        }
+        public Capture(object sender, StatisticsModeEventArgs e)
+        {
+            this.sender = sender;
+            this.statisticsModeEventArgs = e;
+        }
+        public object sender { get; set; }
+        public CaptureEventArgs capturEventArgs { get; set; }
+        public StatisticsModeEventArgs statisticsModeEventArgs { get; set; }
+    }
+
+    //入侵参数类
+    public class Invade
+    {
+        public Invade(System.Net.IPAddress srcIp, System.Net.IPAddress dstIp, int srcPort, int dstPort, string result,DateTime dateTime)
+        {
+            this.srcIp = srcIp;
+            this.dstIp = dstIp;
+            this.srcPort = srcPort;
+            this.dstPort = dstPort;
+            this.result = result;
+            this.dateTime = dateTime;
+        }
+        public System.Net.IPAddress srcIp { get; set; }
+        public System.Net.IPAddress dstIp { get; set; }
+        public int srcPort { get; set; }
+        public int dstPort { get; set; }
+        public string result { get; set; }
+        public DateTime dateTime { get; set; }
+    }
+
     public class Filter
     {
+
+
+        //入侵统计类
+        public class Result
+        {
+            public static int times = 0;
+            public static int port = 0;
+            public static DateTime currentTime;
+        }
+
+
+        //主函数
         public static void Main(string[] args)
         {
             //SharpPcap版本
             string ver = SharpPcap.Version.VersionString;
-            Console.WriteLine("SharpPcap {0}", ver);
-
-            ///<summary>
-            ///功能选择
-            /// </summary>
-
-
-            Console.WriteLine("\n请选择你需要的功能：1.ping检测 2.端口扫描检测 3.分析保存的数据包 4.流量统计 5.监听指定端口: ");
-
-            int func = 0;
-
-            func = int.Parse(Console.ReadLine());
-
-            if (0 == func || 5 < func)
-            {
-                Console.WriteLine("请输入正确的数字");
-            }
+            Console.WriteLine("SharpPcap版本 {0}", ver);
 
             ///<summary>
             ///监听设备选择
@@ -71,79 +106,31 @@ namespace 毕业设计
             //选定的设备
             var device = devices[i] as WinPcapDevice;
 
-            int readTimeoutMilliseconds = 1000;
-            string tcpipfilter = "tcp and ip";
-
-            ///<summary>
-            ///执行功能
-            /// </summary>
-
-            switch (func)
-            {
-
-                case 1:
-                    //PING检测
-                    device.OnPacketArrival +=
-                            new PacketArrivalEventHandler(PingDetect);
-
-                    //混杂模式
-                    device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
-
-                    //过滤icmp包
-                    string icmpfilter = "icmp";
-                    device.Filter = icmpfilter;
-
-                    break;
-
-                case 2:
-                    //端口扫描检测
-                    device.OnPacketArrival +=
-                            new PacketArrivalEventHandler(ScanDetect);
-
-                    //混杂模式
-                    device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
-
-                    //过滤tcp和ip包
-                    device.Filter = tcpipfilter;
-
-                    break;
-
-                case 3:
-                    //测试模块
-                    device.OnPacketArrival +=
-                            new PacketArrivalEventHandler(Test);
-
-                    //混杂模式
-                    device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
-
-                    //过滤tcp和ip包
-                    device.Filter = tcpipfilter;
-
-                    break;
-
-                case 4:
-                    //流量统计
-                    device.OnPcapStatistics +=
-                           new SharpPcap.WinPcap.StatisticsModeEventHandler(Statistics);
-
-                    //混杂模式
-                    device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
-
-                    //统计模式
-                    device.Mode = SharpPcap.WinPcap.CaptureMode.Statistics;
-
-                    break;
-
-                case 5:
-
-                    break;
-
-            }
-
-
             Console.WriteLine();
             Console.WriteLine("-- Listening on {0} {1}, hit 'Enter' to stop...",
                 device.Name, device.Description);
+
+            int readTimeoutMilliseconds = 1000;
+
+            device.OnPacketArrival +=
+                    new PacketArrivalEventHandler(Scan);
+
+            //混杂模式
+            device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
+
+            string ipfilter = "ip";
+            device.Filter = ipfilter;
+
+            /*
+            device.OnPcapStatistics +=
+                    new SharpPcap.WinPcap.StatisticsModeEventHandler(Statistics);
+
+            //混杂模式
+            device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
+
+            //统计模式
+            device.Mode = SharpPcap.WinPcap.CaptureMode.Statistics;
+            */
 
             // Start the capturing process;
             device.StartCapture();
@@ -161,58 +148,58 @@ namespace 毕业设计
 
             // Close the pcap device
             device.Close();
+
         }
+
 
         ///<summary>
         ///回调函数
         /// </summary>
-
-        //测试模块
-        /*
-        private static void Test(object sender, CaptureEventArgs e)
+        private static void Scan(object sender, CaptureEventArgs e)
         {
-            var time = e.Packet.Timeval.Date;
-            var len = e.Packet.Data.Length;
+            var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+            var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
 
-            var packet = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
-            var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
-
-            byte a = tcpPacket.Header[4 + 4 + 4 + 1];
-            int flag = int.Parse(System.Convert.ToString(a, 2));
-            int result= ScanType(flag);
-
-            if(1==result)
-                Console.WriteLine("Found SYNSCAN");
-
-            Console.WriteLine(packet.ToString());
-            Console.WriteLine(packet.PrintHex());
-
-
-            
-            if (tcpPacket != null)
+            if (null != ipPacket)
             {
-                var ipPacket = (PacketDotNet.IpPacket)tcpPacket.ParentPacket;
-                System.Net.IPAddress srcIp = ipPacket.SourceAddress;
-                System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
-                int srcPort = tcpPacket.SourcePort;
-                int dstPort = tcpPacket.DestinationPort;
+                IPProtocolType protocol = ipPacket.Protocol;
 
-                Console.WriteLine("{0}:{1}:{2},{3} Len={4} {5}:{6} -> {7}:{8}",
-                    time.Hour, time.Minute, time.Second, time.Millisecond, len,
-                    srcIp, srcPort, dstIp, dstPort);
-                Console.WriteLine(ipPacket.ToString());
+                //ICMP
+                if ((IPProtocolType)1 == protocol)
+                {
+                    object parameter = new Capture(sender, e);
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(PingDetect), parameter);
+                }
+
+                //TCP
+                else if ((IPProtocolType)6 == protocol)
+                {
+                    object parameter = new Capture(sender, e);
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(ScanDetect), parameter);
+                }
+
+                //UDP
+                else if ((IPProtocolType)17 == protocol)
+                {
+                    Console.WriteLine("UDP");
+                }
+
             }
-            
+
         }
-        */
 
 
         ///<summary>
         ///ping检测
         /// </summary>
-        private static void PingDetect(object sender, CaptureEventArgs e)
+        private static void PingDetect(object parameter)
         {
-            var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+            Capture capture = (Capture)parameter;
+
+            var time = capture.capturEventArgs.Packet.Timeval.Date;
+            var len = capture.capturEventArgs.Packet.Data.Length;
+
+            var packet = PacketDotNet.Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
             var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
 
             //以太网帧报头长度14字节+IP协议报头长度20字节
@@ -221,34 +208,58 @@ namespace 毕业设计
             {
                 System.Net.IPAddress srcIp = ipPacket.SourceAddress;
                 System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
-                Console.WriteLine("检测到来自{0}向{1}发起的PING请求", srcIp, dstIp);
+
+                Console.WriteLine("{0} 检测到 {1} 向 {2} 发起的PING请求",
+                    time.AddHours(8), srcIp, dstIp);
             }
         }
 
         ///<summary>
         ///端口扫描检测
         /// </summary>
-        private static void ScanDetect(object sender, CaptureEventArgs e)
+        private static void ScanDetect(object parameter)
         {
-            var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+            Capture capture = (Capture)parameter;
+
+            var time = capture.capturEventArgs.Packet.Timeval.Date;
+            var len = capture.capturEventArgs.Packet.Data.Length;
+
+            var packet = PacketDotNet.Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
             var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
-            
+
+            //tcpPacket.SourcePort
+            //tcpPacket.DestinationPort
+
             //端口4位+序号4位+确认号4位+数据偏移1位
             byte a = tcpPacket.Header[4 + 4 + 4 + 1];
 
             //将标志位的数据转换为二进制
             int flag = int.Parse(System.Convert.ToString(a, 2));
-           
-            int result = ScanType(flag);
-            if (1 == result)
-                Console.WriteLine("Found SYN scan");
-            else if (2 == result)
-                Console.WriteLine("Found FIN scan");
-            else if (3 == result)
-                Console.WriteLine("Found NULL scan");
+
+            string result = ScanType(flag);
+            if (null != result)
+            {
+                var ipPacket = (IpPacket)tcpPacket.ParentPacket;
+
+                /*
+                System.Net.IPAddress srcIp = ipPacket.SourceAddress;
+                System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
+
+                int srcPort = tcpPacket.SourcePort;
+                int dstPort = tcpPacket.DestinationPort;
+
+                Console.WriteLine("{0} 检测到 {1}:{2} 对 {3}:{4} 的疑似 {5} 扫描",
+                    time.AddHours(8), srcIp, srcPort, dstIp, dstPort, result);
+                */
+
+                object invade = new Invade(ipPacket.SourceAddress, ipPacket.DestinationAddress, tcpPacket.SourcePort, tcpPacket.DestinationPort, result,);
+
+                Thread warning = new Thread(new ParameterizedThreadStart(Warning));
+                warning.Start(invade);
+            }
         }
 
-        private static int ScanType(int flag)
+        private static string ScanType(int flag)
         {
             int ACK, PSH, RST, SYN, FIN;
 
@@ -270,19 +281,32 @@ namespace 毕业设计
             FIN = flag;
 
             if (0 == ACK && 1 == ACK)
-                return 1;//SYN scan
+                return "SYN";//SYN scan
             else if (2 == FIN)
-                return 2;//FIN scan
+                return "FIN";//FIN scan
             else if (0 == ACK && 0 == PSH && 0 == RST && 0 == SYN && 0 == FIN)
-                return 3;//NULL scan
+                return "NULL";//NULL scan
+            else
+                return null;
+        }
 
-            return 0;
+        ///<summary>
+        ///警报模块
+        /// </summary>
+        private static void Warning(object invade)
+        {
+            Invade message = (Invade)invade;
+
+            Result.times += 1;
+            Result.port = message.dstPort;
+
+
         }
 
         ///<summary>
         ///流量统计
         /// </summary>
-        private static void Statistics(object sender, SharpPcap.WinPcap.StatisticsModeEventArgs e)
+        private static void Statistics(object sender, StatisticsModeEventArgs e)
         {
             ulong oldSec = 0;
             ulong oldUsec = 0;
@@ -329,5 +353,8 @@ namespace 毕业设计
             }
             return netflow;
         }
+
     }
+
+
 }
