@@ -252,7 +252,7 @@ namespace 毕业设计
                     time.AddHours(8), srcIp, srcPort, dstIp, dstPort, result);
                 */
 
-                object invade = new Invade(ipPacket.SourceAddress, ipPacket.DestinationAddress, tcpPacket.SourcePort, tcpPacket.DestinationPort, result,);
+                object invade = new Invade(ipPacket.SourceAddress, ipPacket.DestinationAddress, tcpPacket.SourcePort, tcpPacket.DestinationPort, result, time);
 
                 Thread warning = new Thread(new ParameterizedThreadStart(Warning));
                 warning.Start(invade);
