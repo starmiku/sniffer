@@ -29,7 +29,7 @@ namespace 毕业设计
     //入侵参数类
     public class Invade
     {
-        public Invade(System.Net.IPAddress srcIp, System.Net.IPAddress dstIp, int srcPort, int dstPort, string result,DateTime dateTime)
+        public Invade(System.Net.IPAddress srcIp, System.Net.IPAddress dstIp, int srcPort, int dstPort, string result, DateTime dateTime)
         {
             this.srcIp = srcIp;
             this.dstIp = dstIp;
@@ -48,14 +48,13 @@ namespace 毕业设计
 
     public class Filter
     {
-
-
-        //入侵统计类
+        //入侵统计
         public class Result
         {
-            public static int times = 0;
             public static int port = 0;
-            public static DateTime currentTime;
+            public static DateTime firstDetecedTime = DateTime.Now;
+            public static DateTime currentDetecedTime = firstDetecedTime;
+            public static int totalPort = 0;
         }
 
 
@@ -107,9 +106,10 @@ namespace 毕业设计
             var device = devices[i] as WinPcapDevice;
 
             Console.WriteLine();
-            Console.WriteLine("-- Listening on {0} {1}, hit 'Enter' to stop...",
+            Console.WriteLine("-- 开始监听 {0} {1}, 回车键停止监听",
                 device.Name, device.Description);
 
+            //超时时间1000毫秒
             int readTimeoutMilliseconds = 1000;
 
             device.OnPacketArrival +=
@@ -118,10 +118,12 @@ namespace 毕业设计
             //混杂模式
             device.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
 
+            //仅检测所有ip包
             string ipfilter = "ip";
             device.Filter = ipfilter;
 
             /*
+            //统计流量
             device.OnPcapStatistics +=
                     new SharpPcap.WinPcap.StatisticsModeEventHandler(Statistics);
 
@@ -132,21 +134,21 @@ namespace 毕业设计
             device.Mode = SharpPcap.WinPcap.CaptureMode.Statistics;
             */
 
-            // Start the capturing process;
+            //开启监听线程
             device.StartCapture();
 
-            // Wait for 'Enter' from the user.
+            //等待用户输入回车
             Console.ReadLine();
 
-            // Stop the capturing process
+            //停止监听线程
             device.StopCapture();
 
             Console.WriteLine("-- Capture stopped.");
 
-            // Print out the device statistics
+            //Print out the device statistics
             Console.WriteLine(device.Statistics.ToString());
 
-            // Close the pcap device
+            //关闭监听
             device.Close();
 
         }
@@ -164,24 +166,24 @@ namespace 毕业设计
             {
                 IPProtocolType protocol = ipPacket.Protocol;
 
-                //ICMP
+                //ICMP包处理线程
                 if ((IPProtocolType)1 == protocol)
                 {
                     object parameter = new Capture(sender, e);
                     ThreadPool.QueueUserWorkItem(new WaitCallback(PingDetect), parameter);
                 }
 
-                //TCP
+                //TCP包处理线程
                 else if ((IPProtocolType)6 == protocol)
                 {
                     object parameter = new Capture(sender, e);
                     ThreadPool.QueueUserWorkItem(new WaitCallback(ScanDetect), parameter);
                 }
 
-                //UDP
+                //UDP包处理暂时闲置
                 else if ((IPProtocolType)17 == protocol)
                 {
-                    Console.WriteLine("UDP");
+                    //Console.WriteLine("UDP");
                 }
 
             }
@@ -199,7 +201,7 @@ namespace 毕业设计
             var time = capture.capturEventArgs.Packet.Timeval.Date;
             var len = capture.capturEventArgs.Packet.Data.Length;
 
-            var packet = PacketDotNet.Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
+            var packet = Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
             var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
 
             //以太网帧报头长度14字节+IP协议报头长度20字节
@@ -209,6 +211,7 @@ namespace 毕业设计
                 System.Net.IPAddress srcIp = ipPacket.SourceAddress;
                 System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
 
+                //网络时间戳为格林乔治时间 北京时间需要加上8个小时
                 Console.WriteLine("{0} 检测到 {1} 向 {2} 发起的PING请求",
                     time.AddHours(8), srcIp, dstIp);
             }
@@ -227,65 +230,78 @@ namespace 毕业设计
             var packet = PacketDotNet.Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
             var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
 
-            //tcpPacket.SourcePort
-            //tcpPacket.DestinationPort
-
             //端口4位+序号4位+确认号4位+数据偏移1位
             byte a = tcpPacket.Header[4 + 4 + 4 + 1];
 
             //将标志位的数据转换为二进制
             int flag = int.Parse(System.Convert.ToString(a, 2));
 
+            //Console.WriteLine(flag);//测试用例
+
             string result = ScanType(flag);
             if (null != result)
             {
                 var ipPacket = (IpPacket)tcpPacket.ParentPacket;
 
-                /*
-                System.Net.IPAddress srcIp = ipPacket.SourceAddress;
-                System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
-
-                int srcPort = tcpPacket.SourcePort;
-                int dstPort = tcpPacket.DestinationPort;
-
-                Console.WriteLine("{0} 检测到 {1}:{2} 对 {3}:{4} 的疑似 {5} 扫描",
-                    time.AddHours(8), srcIp, srcPort, dstIp, dstPort, result);
-                */
-
+                //源IP、目的IP、源端口、目的端口、检测结果、时间戳（格林乔治时间）
+                //闲置部分参数备用
                 object invade = new Invade(ipPacket.SourceAddress, ipPacket.DestinationAddress, tcpPacket.SourcePort, tcpPacket.DestinationPort, result, time);
 
-                Thread warning = new Thread(new ParameterizedThreadStart(Warning));
+                //开启警报线程
+                Thread warning = new Thread(new ParameterizedThreadStart(ScanWarning));
                 warning.Start(invade);
             }
         }
 
+        //扫描类型检测
         private static string ScanType(int flag)
         {
-            int ACK, PSH, RST, SYN, FIN;
+            int URG, ACK, PSH, RST, SYN, FIN;
+            URG = ACK = PSH = RST = SYN = FIN = 0;
 
-            if (flag >= 100000)
-                flag -= 100000;
+            //提取flag位的各个值
+            if (flag < 1000000 && flag >= 100000)
+            {
+                URG = flag / 100000;
+                flag -= URG * 100000;
+            }
+            if (flag < 100000 && flag >= 10000)
+            {
+                ACK = flag / 10000;
+                flag -= ACK * 10000;
+            }
 
-            ACK = flag % 10000;
-            flag -= ACK * 10000;
+            if (flag < 10000 && flag >= 1000)
+            {
+                PSH = flag / 1000;
+                flag -= PSH * 1000;
+            }
 
-            PSH = flag % 1000;
-            flag -= PSH * 1000;
+            if (flag < 1000 && flag >= 100)
+            {
+                RST = flag / 100;
+                flag -= RST * 100;
+            }
 
-            RST = flag % 100;
-            flag -= RST * 100;
-
-            SYN = flag % 10;
-            flag -= SYN * 10;
+            if (flag < 100 & flag >= 10)
+            {
+                SYN = flag / 10;
+                flag -= SYN * 10;
+            }
 
             FIN = flag;
 
-            if (0 == ACK && 1 == ACK)
-                return "SYN";//SYN scan
-            else if (2 == FIN)
-                return "FIN";//FIN scan
+            //类型判断
+            if (0 == ACK && 1 == SYN)
+                return "SYN/TCP";
+            else if (1 == ACK && 0 == PSH && 0 == RST && 0 == SYN && 0 == FIN)
+                return "ACK";
+            else if (1 == FIN && 0 == URG)
+                return "FIN";
             else if (0 == ACK && 0 == PSH && 0 == RST && 0 == SYN && 0 == FIN)
-                return "NULL";//NULL scan
+                return "NULL";
+            else if (1 == URG && 1 == PSH && 1 == FIN)
+                return "Xmas";
             else
                 return null;
         }
@@ -293,13 +309,47 @@ namespace 毕业设计
         ///<summary>
         ///警报模块
         /// </summary>
-        private static void Warning(object invade)
+
+        //端口扫描警报
+        private static void ScanWarning(object invade)
         {
             Invade message = (Invade)invade;
 
-            Result.times += 1;
-            Result.port = message.dstPort;
+            //记录首次疑似的扫描
+            if (0==Result.totalPort)
+            {
+                Result.firstDetecedTime = message.dateTime;
+                Result.port = message.dstPort;
+                Result.totalPort += 1;
+            }
+            //记录随后到达的扫描
+            else
+            {
+                Result.currentDetecedTime = message.dateTime;
 
+                if (Result.port != message.dstPort)
+                {
+                    Result.totalPort += 1;
+                }
+            }
+
+            TimeSpan timeSpan = Result.currentDetecedTime - Result.firstDetecedTime;
+
+            //通过计算10秒内被访问的端口数量判断是否为扫描
+            if (timeSpan.TotalSeconds <= 10 && Result.totalPort >= 20)
+            {
+                Console.WriteLine("检测到{0}扫描", message.result);
+
+                //发出警报后重置计数器
+                Result.totalPort = 0;
+                Result.firstDetecedTime = Result.currentDetecedTime = DateTime.Now;
+            }
+            else
+            {
+                //如果达不到触发条件则重置计数器
+                Result.totalPort = 0;
+                Result.firstDetecedTime = Result.currentDetecedTime = DateTime.Now;
+            }
 
         }
 
@@ -355,6 +405,4 @@ namespace 毕业设计
         }
 
     }
-
-
 }
