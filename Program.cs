@@ -52,9 +52,10 @@ namespace 毕业设计
         public class Result
         {
             public static int port = 0;
+            public static int totalPort = 0;
             public static DateTime firstDetecedTime = DateTime.Now;
             public static DateTime currentDetecedTime = firstDetecedTime;
-            public static int totalPort = 0;
+            public static DateTime warningTime = firstDetecedTime;
         }
 
 
@@ -101,7 +102,7 @@ namespace 毕业设计
                 Console.WriteLine("\n请输入正确的序号：");
                 i = int.Parse(Console.ReadLine());
             }
-
+                
             //选定的设备
             var device = devices[i] as WinPcapDevice;
 
@@ -236,16 +237,16 @@ namespace 毕业设计
             //将标志位的数据转换为二进制
             int flag = int.Parse(System.Convert.ToString(a, 2));
 
-            //Console.WriteLine(flag);//测试用例
+            //Console.WriteLine(flag);//测试用
 
             string result = ScanType(flag);
             if (null != result)
             {
                 var ipPacket = (IpPacket)tcpPacket.ParentPacket;
 
-                //源IP、目的IP、源端口、目的端口、检测结果、时间戳（格林乔治时间）
+                //源IP、目的IP、源端口、目的端口、检测结果、时间戳（北京时间）
                 //闲置部分参数备用
-                object invade = new Invade(ipPacket.SourceAddress, ipPacket.DestinationAddress, tcpPacket.SourcePort, tcpPacket.DestinationPort, result, time);
+                object invade = new Invade(ipPacket.SourceAddress, ipPacket.DestinationAddress, tcpPacket.SourcePort, tcpPacket.DestinationPort, result, time.AddHours(8));
 
                 //开启警报线程
                 Thread warning = new Thread(new ParameterizedThreadStart(ScanWarning));
@@ -316,7 +317,7 @@ namespace 毕业设计
             Invade message = (Invade)invade;
 
             //记录首次疑似的扫描
-            if (0==Result.totalPort)
+            if (0 == Result.totalPort)
             {
                 Result.firstDetecedTime = message.dateTime;
                 Result.port = message.dstPort;
@@ -333,18 +334,23 @@ namespace 毕业设计
                 }
             }
 
+            //使用北京时间计算
             TimeSpan timeSpan = Result.currentDetecedTime - Result.firstDetecedTime;
 
-            //通过计算10秒内被访问的端口数量判断是否为扫描
-            if (timeSpan.TotalSeconds <= 10 && Result.totalPort >= 20)
+            //Console.WriteLine(Result.firstDetecedTime);//测试
+            
+            //通过计算5秒内被访问的端口数量判断是否为扫描
+            if (timeSpan.TotalSeconds < 10 && Result.totalPort >= 20 && (DateTime.Now-Result.warningTime).TotalSeconds>1)
             {
-                Console.WriteLine("检测到{0}扫描", message.result);
+                Result.warningTime = DateTime.Now;
+
+                Console.WriteLine("{0} 检测到{1}扫描", Result.warningTime, message.result);
 
                 //发出警报后重置计数器
                 Result.totalPort = 0;
                 Result.firstDetecedTime = Result.currentDetecedTime = DateTime.Now;
             }
-            else
+            else if (timeSpan.TotalSeconds >= 10)
             {
                 //如果达不到触发条件则重置计数器
                 Result.totalPort = 0;
