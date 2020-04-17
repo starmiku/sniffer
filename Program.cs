@@ -1,10 +1,14 @@
 ﻿using System;
+using System.Net;
+using System.Net.Mail;
+using System.Threading;
+using System.Text;
 using SharpPcap;
 using SharpPcap.LibPcap;
 using SharpPcap.WinPcap;
 using SharpPcap.AirPcap;
 using PacketDotNet;
-using System.Threading;
+
 
 namespace 毕业设计
 {
@@ -13,17 +17,17 @@ namespace 毕业设计
     {
         public Capture(object sender, CaptureEventArgs e)
         {
-            this.sender = sender;
-            this.capturEventArgs = e;
+            this.Sender = sender;
+            this.CapturEventArgs = e;
         }
         public Capture(object sender, StatisticsModeEventArgs e)
         {
-            this.sender = sender;
-            this.statisticsModeEventArgs = e;
+            this.Sender = sender;
+            this.StatisticsModeEventArgs = e;
         }
-        public object sender { get; set; }
-        public CaptureEventArgs capturEventArgs { get; set; }
-        public StatisticsModeEventArgs statisticsModeEventArgs { get; set; }
+        public object Sender { get; set; }
+        public CaptureEventArgs CapturEventArgs { get; set; }
+        public StatisticsModeEventArgs StatisticsModeEventArgs { get; set; }
     }
 
     //入侵参数类
@@ -31,25 +35,27 @@ namespace 毕业设计
     {
         public Invade(System.Net.IPAddress srcIp, System.Net.IPAddress dstIp, int srcPort, int dstPort, string result, DateTime dateTime)
         {
-            this.srcIp = srcIp;
-            this.dstIp = dstIp;
-            this.srcPort = srcPort;
-            this.dstPort = dstPort;
-            this.result = result;
-            this.dateTime = dateTime;
+            this.SrcIp = srcIp;
+            this.DstIp = dstIp;
+            this.SrcPort = srcPort;
+            this.DstPort = dstPort;
+            this.Result = result;
+            this.DateTime = dateTime;
         }
-        public System.Net.IPAddress srcIp { get; set; }
-        public System.Net.IPAddress dstIp { get; set; }
-        public int srcPort { get; set; }
-        public int dstPort { get; set; }
-        public string result { get; set; }
-        public DateTime dateTime { get; set; }
+        public System.Net.IPAddress SrcIp { get; set; }
+        public System.Net.IPAddress DstIp { get; set; }
+        public int SrcPort { get; set; }
+        public int DstPort { get; set; }
+        public string Result { get; set; }
+        public DateTime DateTime { get; set; }
     }
 
     public class Filter
     {
+        static object locker = new object();
+
         //入侵统计
-        public class Result
+        public static class Result
         {
             public static int port = 0;
             public static int totalPort = 0;
@@ -58,6 +64,13 @@ namespace 毕业设计
             public static DateTime warningTime = firstDetecedTime;
         }
 
+        //邮件数据统计
+        public static class Email
+        {
+            public static System.Net.IPAddress invadeIP;
+            public static int invadeTimes = 0;
+            public static int whetherEmailSent = 0;
+        }
 
         //主函数
         public static void Main(string[] args)
@@ -197,10 +210,8 @@ namespace 毕业设计
         {
             Capture capture = (Capture)parameter;
 
-            var time = capture.capturEventArgs.Packet.Timeval.Date;
-            var len = capture.capturEventArgs.Packet.Data.Length;
-
-            var packet = Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
+            var time = capture.CapturEventArgs.Packet.Timeval.Date;
+            var packet = Packet.ParsePacket(capture.CapturEventArgs.Packet.LinkLayerType, capture.CapturEventArgs.Packet.Data);
             var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
 
             //以太网帧报头长度14字节+IP协议报头长度20字节
@@ -223,10 +234,8 @@ namespace 毕业设计
         {
             Capture capture = (Capture)parameter;
 
-            var time = capture.capturEventArgs.Packet.Timeval.Date;
-            var len = capture.capturEventArgs.Packet.Data.Length;
-
-            var packet = PacketDotNet.Packet.ParsePacket(capture.capturEventArgs.Packet.LinkLayerType, capture.capturEventArgs.Packet.Data);
+            var time = capture.CapturEventArgs.Packet.Timeval.Date;
+            var packet = PacketDotNet.Packet.ParsePacket(capture.CapturEventArgs.Packet.LinkLayerType, capture.CapturEventArgs.Packet.Data);
             var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
 
             //端口4位+序号4位+确认号4位+数据偏移1位
@@ -256,7 +265,7 @@ namespace 毕业设计
         private static string ScanType(int flag)
         {
             int URG, ACK, PSH, RST, SYN, FIN;
-            URG = ACK = PSH = RST = SYN = FIN = 0;
+            URG = ACK = PSH = RST = SYN = 0;
 
             //提取flag位的各个值
             if (flag < 1000000 && flag >= 100000)
@@ -317,16 +326,16 @@ namespace 毕业设计
             //记录首次疑似的扫描
             if (0 == Result.totalPort)
             {
-                Result.firstDetecedTime = message.dateTime;
-                Result.port = message.dstPort;
-                Result.totalPort += 1;
+                Result.firstDetecedTime = message.DateTime;
+                Result.port = message.DstPort;
+                Result.totalPort++;
             }
             //记录随后到达的扫描
             else
             {
-                Result.currentDetecedTime = message.dateTime;
+                Result.currentDetecedTime = message.DateTime;
 
-                if (Result.port != message.dstPort)
+                if (Result.port != message.DstPort)
                 {
                     Result.totalPort += 1;
                 }
@@ -342,9 +351,19 @@ namespace 毕业设计
             {
                 Result.warningTime = DateTime.Now;
 
-                if (message.dstPort != 80 && message.dstPort != 3306)
+                if (message.DstPort != 80 && message.DstPort != 3306)
                 {
-                    Console.WriteLine("{0} 检测到{1}扫描", Result.warningTime, message.result);
+                    Console.WriteLine("{0} 检测到来自 {1} 的 {2} 疑似扫描", Result.warningTime, message.SrcIp, message.Result);
+                    Email.invadeIP = message.SrcIp;
+                }
+
+                lock (locker)
+                {
+                    if (Email.whetherEmailSent == 0)
+                    {
+                        SendingEmail(message.SrcIp, message.Result);
+                        Email.whetherEmailSent = 1;
+                    }
                 }
 
                 //发出警报后重置计数器
@@ -359,6 +378,64 @@ namespace 毕业设计
             }
 
         }
+
+
+        ///<summary>
+        ///发送邮件
+        /// </summary>
+
+        private static void SendingEmail(System.Net.IPAddress srcIP, string type)
+        {
+            string smtpService = "smtp.qq.com";
+            string sendEmail = "xxxxxxxxxxx@qq.com";
+            string sendpwd = "xxxxxxxxxxxx";
+            string sendText = "检测到来自 " + srcIP + " 的 " + type + "扫描";
+
+            //确定smtp服务器地址 实例化一个Smtp客户端
+            SmtpClient smtpclient = new SmtpClient
+            {
+                Host = smtpService
+            };
+            //smtpClient.Port = "";//qq邮箱可以不用端口
+
+            //确定发件地址与收件地址
+            MailAddress sendAddress = new MailAddress(sendEmail);
+            MailAddress receiveAddress = new MailAddress("15800021439@qq.com");
+
+            //构造一个Email的Message对象 内容信息
+            MailMessage mailMessage = new MailMessage(sendAddress, receiveAddress)
+            {
+                Subject = "入侵警告" + DateTime.Now,
+                SubjectEncoding = Encoding.UTF8,
+                Body = sendText,
+                BodyEncoding = Encoding.UTF8
+            };
+
+            //邮件发送方式  通过网络发送到smtp服务器
+            smtpclient.DeliveryMethod = SmtpDeliveryMethod.Network;
+
+            //如果服务器支持安全连接，则将安全连接设为true
+            smtpclient.EnableSsl = true;
+            try
+            {
+                //是否使用默认凭据，若为false，则使用自定义的证书
+                smtpclient.UseDefaultCredentials = false;
+
+                //指定邮箱账号和密码
+                NetworkCredential networkCredential = new NetworkCredential(sendEmail, sendpwd);
+                smtpclient.Credentials = networkCredential;
+
+                //发送邮件
+                smtpclient.Send(mailMessage);
+                Console.WriteLine("发送邮件成功");
+
+            }
+            catch (System.Net.Mail.SmtpException ex) 
+            { 
+                Console.WriteLine(ex.Message, "发送邮件出错"); 
+            }
+        }
+
 
         ///<summary>
         ///流量统计
