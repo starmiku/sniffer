@@ -192,12 +192,6 @@ namespace 毕业设计
                     ThreadPool.QueueUserWorkItem(new WaitCallback(ScanDetect), parameter);
                 }
 
-                //UDP包处理暂时闲置
-                else if ((IPProtocolType)17 == protocol)
-                {
-                    //Console.WriteLine("UDP");
-                }
-
             }
 
         }
@@ -221,7 +215,7 @@ namespace 毕业设计
                 System.Net.IPAddress srcIp = ipPacket.SourceAddress;
                 System.Net.IPAddress dstIp = ipPacket.DestinationAddress;
 
-                //网络时间戳为格林乔治时间 北京时间需要加上8个小时
+                //网络时间戳为格林威治时间 北京时间需要加上8个小时
                 Console.WriteLine("{0} 检测到 {1} 向 {2} 发起的PING请求",
                     time.AddHours(8), srcIp, dstIp);
             }
