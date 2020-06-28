@@ -70,6 +70,7 @@ namespace 毕业设计
             public static System.Net.IPAddress invadeIP;
             public static int invadeTimes = 0;
             public static int whetherEmailSent = 0;
+            public static DateTime sentTime;
         }
 
         //主函数
@@ -165,6 +166,39 @@ namespace 毕业设计
 
         }
 
+        ///<summary>
+        ///测试函数
+        /// </summary>
+        private static void Test(object sender, CaptureEventArgs e)
+        {
+            if (0 != e.Packet.LinkLayerType)
+            {
+                var packet = PacketDotNet.Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+                var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
+
+                if (null != ipPacket)
+                {
+                    //Console.WriteLine(ipPacket);
+
+                    IPProtocolType protocol = ipPacket.Protocol;
+
+                    //ICMP包处理线程
+                    if ((IPProtocolType)1 == protocol)
+                    {
+                        var icmpv4Packet= (ICMPv4Packet)packet.Extract(typeof(ICMPv4Packet));
+                        Console.WriteLine(icmpv4Packet);
+                    }
+
+                    //TCP包处理线程
+                    else if ((IPProtocolType)6 == protocol)
+                    {
+                        var tcpPacket = (TcpPacket)packet.Extract(typeof(TcpPacket));
+                        Console.WriteLine(tcpPacket);
+                    }
+
+                }
+            }
+        }
 
         ///<summary>
         ///回调函数
@@ -357,6 +391,7 @@ namespace 毕业设计
                     {
                         SendingEmail(message.SrcIp, message.Result);
                         Email.whetherEmailSent = 1;
+                        Email.sentTime = DateTime.Now;
                     }
                 }
 
@@ -371,6 +406,10 @@ namespace 毕业设计
                 Result.firstDetecedTime = Result.currentDetecedTime = DateTime.Now;
             }
 
+            //重置邮件发送
+            if (60 <= (DateTime.Now - Email.sentTime).TotalSeconds && 1 == Email.whetherEmailSent)
+                Email.whetherEmailSent = 0;
+
         }
 
 
@@ -381,8 +420,8 @@ namespace 毕业设计
         private static void SendingEmail(System.Net.IPAddress srcIP, string type)
         {
             string smtpService = "smtp.qq.com";
-            string sendEmail = "xxxxxxxxxxx@qq.com";
-            string sendpwd = "xxxxxxxxxxxx";
+            string sendEmail = "xxxxxxxxx@qq.com";
+            string sendpwd = "xxxxxxxxxxx";
             string sendText = "检测到来自 " + srcIP + " 的 " + type + "扫描";
 
             //确定smtp服务器地址 实例化一个Smtp客户端
@@ -394,7 +433,7 @@ namespace 毕业设计
 
             //确定发件地址与收件地址
             MailAddress sendAddress = new MailAddress(sendEmail);
-            MailAddress receiveAddress = new MailAddress("15800021439@qq.com");
+            MailAddress receiveAddress = new MailAddress("xxxxxxxxxx@qq.com");
 
             //构造一个Email的Message对象 内容信息
             MailMessage mailMessage = new MailMessage(sendAddress, receiveAddress)
@@ -424,9 +463,9 @@ namespace 毕业设计
                 Console.WriteLine("发送邮件成功");
 
             }
-            catch (System.Net.Mail.SmtpException ex) 
-            { 
-                Console.WriteLine(ex.Message, "发送邮件出错"); 
+            catch (System.Net.Mail.SmtpException ex)
+            {
+                Console.WriteLine(ex.Message, "发送邮件出错");
             }
         }
 
